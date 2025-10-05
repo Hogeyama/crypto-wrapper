@@ -150,7 +150,7 @@ export async function unmountProfile(
   }
 
   try {
-    await $`gocryptfs -q -umount ${profile.mountDir}`
+    await $`umount ${profile.mountDir}`
       .stdout("inherit")
       .stderr("inherit");
   } catch (error) {
@@ -159,8 +159,31 @@ export async function unmountProfile(
       await logMessage("ERROR", `Failed to unmount '${profile.name}': ${message}`);
       throw error;
     }
+
+    try {
+      await $`umount -l ${profile.mountDir}`
+        .stdout("inherit")
+        .stderr("inherit");
+      await logMessage(
+        "WARN",
+        `Unmounted '${profile.name}' using lazy umount due to previous failure.`,
+      );
+    } catch (_error) {
+      // fall through to cleanup even if lazy umount fails when forcing
+    }
   }
 
   await cleanupState(profile.name, false);
+
+  try {
+    await Deno.remove(profile.mountDir);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logMessage(
+      "WARN",
+      `Failed to remove mount directory '${profile.mountDir}' after umount: ${message}`,
+    );
+  }
+
   await logMessage("INFO", `Unmounted '${profile.name}' from ${profile.mountDir}`);
 }
