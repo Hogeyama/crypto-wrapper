@@ -93,9 +93,6 @@ program
     ) => {
       const profile = await loadProfile(profileName);
       const combinedArgs = [...profile.command, ...cmdArgs];
-      if (combinedArgs.length === 0) {
-        throw new Error(`Profile '${profileName}' does not define a command to execute.`);
-      }
 
       const envOverrides: Record<string, string> = {
         ...profile.env,
@@ -115,9 +112,6 @@ program
         }
         if (profile.workingDir) {
           console.log(`[dry-run] Working directory: ${expandPath(profile.workingDir)}`);
-        }
-        if (profile.protectedPaths.length > 0) {
-          console.log(`[dry-run] Protected paths: ${profile.protectedPaths.join(", ")}`);
         }
         return;
       }

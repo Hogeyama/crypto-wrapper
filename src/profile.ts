@@ -10,7 +10,6 @@ export interface Profile {
   passwordEntry: string;
   cipherDir: string;
   mountDir: string;
-  protectedPaths: string[];
   workingDir?: string;
 }
 
@@ -24,8 +23,6 @@ interface RawProfile {
   cipherDir?: string;
   mount_dir?: string;
   mountDir?: string;
-  protected_paths?: string[];
-  protectedPaths?: string[];
   cwd?: string;
   working_dir?: string;
 }
@@ -96,7 +93,6 @@ async function buildProfileFromRaw(name: string, raw: RawProfile): Promise<Profi
   const cipherDir = raw.cipherDir ?? raw.cipher_dir ?? defaultCipherDir(name);
   const mountDir = raw.mountDir ?? raw.mount_dir ?? defaultMountDir(name);
   const env = raw.env ?? {};
-  const protectedPaths = raw.protectedPaths ?? raw.protected_paths ?? [];
   const workingDir = raw.cwd ?? raw.working_dir;
 
   await ensureDir(profileDataDir(name));
@@ -108,7 +104,6 @@ async function buildProfileFromRaw(name: string, raw: RawProfile): Promise<Profi
     passwordEntry,
     cipherDir,
     mountDir,
-    protectedPaths,
     workingDir,
   };
 }
