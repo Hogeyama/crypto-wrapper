@@ -9,8 +9,15 @@ export function expandPath(input: string): string {
   if (input === "~") {
     return homeDir;
   }
-  if (input.startsWith("~/")) {
-    return join(homeDir, input.slice(2));
+
+  if (input.startsWith("~/") || input.startsWith("~\\")) {
+    const rest = input.slice(2);
+    if (rest.length === 0) {
+      return homeDir;
+    }
+    const segments = rest.split(/[\\/]+/).filter(Boolean);
+    return segments.length === 0 ? homeDir : join(homeDir, ...segments);
   }
+
   return input;
 }

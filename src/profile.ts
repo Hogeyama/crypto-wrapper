@@ -2,6 +2,7 @@ import { exists } from "@std/fs/exists";
 import { ensureDir } from "@std/fs/ensure-dir";
 import { parse } from "@std/yaml";
 import { defaultCipherDir, defaultMountDir, profileDataDir, profilesConfigFile } from "./paths.ts";
+import { expandPath } from "./path_utils.ts";
 
 export interface Profile {
   name: string;
@@ -81,19 +82,25 @@ async function buildProfileFromRaw(name: string, raw: RawProfile): Promise<Profi
     throw new Error(`Profile '${name}' is missing a 'command' definition.`);
   }
 
-  const command = Array.isArray(commandValue)
+  const toStringArray = Array.isArray(commandValue)
     ? commandValue.map((part) => `${part}`)
     : [`${commandValue}`];
+  const command = toStringArray.map((part) => expandPath(part));
 
   const passwordEntry = raw.passwordEntry ?? raw.password_entry;
   if (!passwordEntry) {
     throw new Error(`Profile '${name}' is missing 'password_entry'.`);
   }
 
-  const cipherDir = raw.cipherDir ?? raw.cipher_dir ?? defaultCipherDir(name);
-  const mountDir = raw.mountDir ?? raw.mount_dir ?? defaultMountDir(name);
-  const env = raw.env ?? {};
-  const workingDir = raw.cwd ?? raw.working_dir;
+  const cipherDir = expandPath(raw.cipherDir ?? raw.cipher_dir ?? defaultCipherDir(name));
+  const mountDir = expandPath(raw.mountDir ?? raw.mount_dir ?? defaultMountDir(name));
+  const envRaw = raw.env ?? {};
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(envRaw)) {
+    env[key] = expandPath(`${value}`);
+  }
+  const workingDirRaw = raw.cwd ?? raw.working_dir;
+  const workingDir = workingDirRaw ? expandPath(workingDirRaw) : undefined;
 
   await ensureDir(profileDataDir(name));
 
