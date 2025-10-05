@@ -4,14 +4,25 @@ import { Command } from "@cliffy/command";
 import { bold } from "@std/fmt/colors";
 import { CommandBuilder } from "@david/dax";
 
-import { listProfileNames, loadProfile } from "./profile.ts";
+import {
+  getEnvInjectors,
+  getGocryptfsInjectors,
+  listProfileNames,
+  loadProfile,
+} from "./profile.ts";
 import { isMounted, mountProfile, unmountProfile } from "./mount.ts";
 import { expandPath } from "./path_utils.ts";
+import { readPassEntry } from "./pass.ts";
 
 const VERSION = "0.1.0";
 
 function printListTable(
-  rows: Array<{ name: string; mounted: boolean; mountDir?: string; error?: string }>,
+  rows: Array<{
+    name: string;
+    mounted: boolean;
+    mountDir?: string;
+    error?: string;
+  }>,
 ): void {
   const headers = ["PROFILE", "STATUS", "MOUNT"];
   console.log(headers.join("  "));
@@ -25,7 +36,9 @@ function printListTable(
 const program = new Command()
   .name("cryptow")
   .version(VERSION)
-  .description("Secure wrapper around CLI tools using gocryptfs-mounted storage.")
+  .description(
+    "Secure wrapper around CLI tools using gocryptfs-mounted storage.",
+  )
   .throwErrors();
 
 program
@@ -34,13 +47,25 @@ program
   .option("--json", "Output JSON")
   .action(async ({ json }) => {
     const names = await listProfileNames();
-    const rows: Array<{ name: string; mounted: boolean; mountDir?: string; error?: string }> = [];
+    const rows: Array<{
+      name: string;
+      mounted: boolean;
+      mountDir?: string;
+      error?: string;
+    }> = [];
 
     for (const name of names) {
       try {
         const profile = await loadProfile(name);
         const mounted = await isMounted(name);
-        rows.push({ name, mounted, mountDir: profile.mountDir });
+        const gocMounts = getGocryptfsInjectors(profile).map(
+          (injector) => injector.mountDir,
+        );
+        rows.push({
+          name,
+          mounted,
+          mountDir: gocMounts.length === 0 ? undefined : gocMounts.join(", "),
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         rows.push({ name, mounted: false, error: message });
@@ -53,7 +78,9 @@ program
     }
 
     if (rows.length === 0) {
-      console.log("No profiles found. Define profiles in ~/.config/cryptow/profiles.yaml.");
+      console.log(
+        "No profiles found. Define profiles in ~/.config/cryptow/profiles.yaml.",
+      );
       return;
     }
 
@@ -62,7 +89,9 @@ program
 
 program
   .command("mount <profile:string>")
-  .description("Mount the encrypted store for a profile without executing its command.")
+  .description(
+    "Mount the encrypted store for a profile without executing its command.",
+  )
   .option("--dry-run", "Describe actions without executing.")
   .option("--force", "Ignore stale locks.")
   .action(async ({ dryRun = false, force = false }, profileName: string) => {
@@ -97,21 +126,34 @@ program
       const envOverrides: Record<string, string> = {
         ...profile.env,
         CRYPTOW_PROFILE: profile.name,
-        CRYPTOW_MOUNT: profile.mountDir,
-        CRYPTOW_CIPHER: profile.cipherDir,
       };
+
+      const gocryptfsInjectors = getGocryptfsInjectors(profile);
+      if (gocryptfsInjectors.length > 0) {
+        const primary = gocryptfsInjectors[0];
+        envOverrides.CRYPTOW_MOUNT = primary.mountDir;
+        envOverrides.CRYPTOW_CIPHER = primary.cipherDir;
+      }
+
+      const envInjectors = getEnvInjectors(profile);
 
       if (dryRun) {
         await mountProfile(profile, { dryRun: true, force });
         console.log(`[dry-run] Would run command: ${combinedArgs.join(" ")}`);
         if (Object.keys(envOverrides).length > 0) {
+          const dryRunEnv = { ...envOverrides };
+          for (const injector of envInjectors) {
+            dryRunEnv[injector.envVar] = `<pass:${injector.passwordEntry}>`;
+          }
           console.log("[dry-run] Environment overrides:");
-          for (const [key, value] of Object.entries(envOverrides)) {
+          for (const [key, value] of Object.entries(dryRunEnv)) {
             console.log(`  ${key}=${value}`);
           }
         }
         if (profile.workingDir) {
-          console.log(`[dry-run] Working directory: ${expandPath(profile.workingDir)}`);
+          console.log(
+            `[dry-run] Working directory: ${expandPath(profile.workingDir)}`,
+          );
         }
         return;
       }
@@ -122,12 +164,20 @@ program
         await mountProfile(profile, { force });
         mounted = true;
 
-        const [binary, ...args] = combinedArgs;
-        if (!binary) {
-          throw new Error("No command specified after resolving profile and arguments.");
+        for (const injector of envInjectors) {
+          const secret = await readPassEntry(injector.passwordEntry);
+          envOverrides[injector.envVar] = secret;
         }
 
-        let builder: CommandBuilder = new CommandBuilder().command([binary, ...args])
+        const [binary, ...args] = combinedArgs;
+        if (!binary) {
+          throw new Error(
+            "No command specified after resolving profile and arguments.",
+          );
+        }
+
+        let builder: CommandBuilder = new CommandBuilder()
+          .command([binary, ...args])
           .stdin("inherit")
           .stdout("inherit")
           .stderr("inherit");
@@ -155,7 +205,9 @@ program
             await unmountProfile(profile, { force: true });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            console.error(bold(`Failed to unmount profile '${profile.name}': ${message}`));
+            console.error(
+              bold(`Failed to unmount profile '${profile.name}': ${message}`),
+            );
             exitCode = exitCode === 0 ? 1 : exitCode;
           }
         }

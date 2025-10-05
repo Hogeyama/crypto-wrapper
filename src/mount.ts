@@ -3,7 +3,8 @@ import { exists } from "@std/fs/exists";
 import { dirname } from "@std/path";
 import $ from "@david/dax";
 import { logMessage } from "./logger.ts";
-import { Profile } from "./profile.ts";
+import { getGocryptfsInjectors, GocryptfsInjector, Profile } from "./profile.ts";
+import { readPassEntry } from "./pass.ts";
 import { lockFilePath, pidFilePath } from "./paths.ts";
 
 export interface MountOptions {
@@ -77,12 +78,20 @@ export async function mountProfile(profile: Profile, options: MountOptions = {})
   const { dryRun = false, force = false } = options;
 
   await acquireLock(profile.name, force, dryRun);
+  const gocryptfsInjectors = getGocryptfsInjectors(profile);
   const infoLines = [
     `Mounting profile '${profile.name}'`,
-    ` cipherDir: ${profile.cipherDir}`,
-    ` mountDir: ${profile.mountDir}`,
-    ` passwordEntry: ${profile.passwordEntry}`,
   ];
+
+  if (gocryptfsInjectors.length === 0) {
+    infoLines.push(" no gocryptfs injectors configured; nothing to mount.");
+  } else {
+    for (const injector of gocryptfsInjectors) {
+      infoLines.push(
+        ` gocryptfs -> ${injector.mountDir} (cipher: ${injector.cipherDir}, pass: ${injector.passwordEntry})`,
+      );
+    }
+  }
 
   if (dryRun) {
     infoLines.push(" [dry-run] No commands executed");
@@ -92,31 +101,48 @@ export async function mountProfile(profile: Profile, options: MountOptions = {})
     return;
   }
 
+  const mountedInjectors: GocryptfsInjector[] = [];
+
   try {
     await writePidFile(profile.name, false);
-    await ensureDir(profile.cipherDir);
-    await ensureDir(profile.mountDir);
 
-    const passOutput = await $`pass show ${profile.passwordEntry}`.text();
-    const password = passOutput.trimEnd();
-    if (!password) {
-      throw new Error(`No password retrieved from pass for '${profile.passwordEntry}'.`);
+    for (const injector of gocryptfsInjectors) {
+      await ensureDir(injector.cipherDir);
+      await ensureDir(injector.mountDir);
+
+      const password = await readPassEntry(injector.passwordEntry);
+      const tempPassFile = await Deno.makeTempFile({ prefix: "cryptow-pass-" });
+      try {
+        await Deno.chmod(tempPassFile, 0o600);
+        await Deno.writeTextFile(tempPassFile, password + "\n");
+
+        await $`gocryptfs -q --passfile ${tempPassFile} ${injector.cipherDir} ${injector.mountDir}`
+          .stdout("inherit")
+          .stderr("inherit");
+
+        mountedInjectors.push(injector);
+        await logMessage(
+          "INFO",
+          `Mounted '${profile.name}' to ${injector.mountDir} (cipher: ${injector.cipherDir})`,
+        );
+      } finally {
+        await Deno.remove(tempPassFile).catch(() => {});
+      }
     }
 
-    const tempPassFile = await Deno.makeTempFile({ prefix: "cryptow-pass-" });
-    try {
-      await Deno.chmod(tempPassFile, 0o600);
-      await Deno.writeTextFile(tempPassFile, password + "\n");
-
-      await $`gocryptfs -q --passfile ${tempPassFile} ${profile.cipherDir} ${profile.mountDir}`
-        .stdout("inherit")
-        .stderr("inherit");
-
-      await logMessage("INFO", `Mounted '${profile.name}' to ${profile.mountDir}`);
-    } finally {
-      await Deno.remove(tempPassFile).catch(() => {});
+    if (gocryptfsInjectors.length === 0) {
+      await logMessage("INFO", `Mounted '${profile.name}' (no gocryptfs injectors)`);
     }
   } catch (error) {
+    for (const injector of mountedInjectors.reverse()) {
+      try {
+        await $`umount ${injector.mountDir}`
+          .stdout("inherit")
+          .stderr("inherit");
+      } catch (_unmountError) {
+        // best-effort cleanup; ignore errors here as we'll surface the original failure below
+      }
+    }
     await cleanupState(profile.name, false);
     const message = error instanceof Error ? error.message : String(error);
     await logMessage("ERROR", `Failed to mount '${profile.name}': ${message}`);
@@ -130,6 +156,7 @@ export async function unmountProfile(
 ): Promise<void> {
   const { dryRun = false, force = false } = options;
   const mounted = await isMounted(profile.name);
+  const gocryptfsInjectors = getGocryptfsInjectors(profile);
 
   if (!mounted) {
     if (dryRun) {
@@ -145,14 +172,55 @@ export async function unmountProfile(
   }
 
   if (dryRun) {
-    console.log(`Would unmount '${profile.name}' from ${profile.mountDir}`);
+    if (gocryptfsInjectors.length === 0) {
+      console.log(`Would clear lock state for '${profile.name}' (no gocryptfs mounts).`);
+    } else {
+      for (const injector of gocryptfsInjectors) {
+        console.log(`Would unmount '${profile.name}' from ${injector.mountDir}`);
+      }
+    }
     return;
   }
 
   try {
-    await $`umount ${profile.mountDir}`
-      .stdout("inherit")
-      .stderr("inherit");
+    for (const injector of [...gocryptfsInjectors].reverse()) {
+      try {
+        await $`umount ${injector.mountDir}`
+          .stdout("inherit")
+          .stderr("inherit");
+      } catch (error) {
+        if (!force) {
+          const message = error instanceof Error ? error.message : String(error);
+          await logMessage(
+            "ERROR",
+            `Failed to unmount '${profile.name}' from ${injector.mountDir}: ${message}`,
+          );
+          throw error;
+        }
+
+        try {
+          await $`umount -l ${injector.mountDir}`
+            .stdout("inherit")
+            .stderr("inherit");
+          await logMessage(
+            "WARN",
+            `Unmounted '${profile.name}' from ${injector.mountDir} using lazy umount due to previous failure.`,
+          );
+        } catch (_error) {
+          // fall through to cleanup even if lazy umount fails when forcing
+        }
+      }
+
+      try {
+        await Deno.remove(injector.mountDir);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await logMessage(
+          "WARN",
+          `Failed to remove mount directory '${injector.mountDir}' after umount: ${message}`,
+        );
+      }
+    }
   } catch (error) {
     if (!force) {
       const message = error instanceof Error ? error.message : String(error);
@@ -160,30 +228,9 @@ export async function unmountProfile(
       throw error;
     }
 
-    try {
-      await $`umount -l ${profile.mountDir}`
-        .stdout("inherit")
-        .stderr("inherit");
-      await logMessage(
-        "WARN",
-        `Unmounted '${profile.name}' using lazy umount due to previous failure.`,
-      );
-    } catch (_error) {
-      // fall through to cleanup even if lazy umount fails when forcing
-    }
+    // force path already attempted lazy umount per injector; continue to cleanup
   }
 
   await cleanupState(profile.name, false);
-
-  try {
-    await Deno.remove(profile.mountDir);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await logMessage(
-      "WARN",
-      `Failed to remove mount directory '${profile.mountDir}' after umount: ${message}`,
-    );
-  }
-
-  await logMessage("INFO", `Unmounted '${profile.name}' from ${profile.mountDir}`);
+  await logMessage("INFO", `Unmounted '${profile.name}'`);
 }
