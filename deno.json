@@ -1,0 +1,21 @@
+{
+  "imports": {
+    "@cliffy/command": "jsr:@cliffy/command@^1.0.0-rc.8",
+    "@david/dax": "jsr:@david/dax@^0.43.2",
+    "@std/fmt": "jsr:@std/fmt@^1.0.8",
+    "@std/fs": "jsr:@std/fs@^1.0.19",
+    "@std/path": "jsr:@std/path@^1.1.2",
+    "@std/yaml": "jsr:@std/yaml@^1.0.9"
+  },
+  "tasks": {
+    "dev": "deno run -A src/main.ts",
+    "lint": "deno fmt && deno lint && deno check src/main.ts"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": false,
+    "exclude": ["*.md"]
+  }
+}

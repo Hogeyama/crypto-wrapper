@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+PROGDIR=$(dirname "$(realpath "$0")")
+exec deno run -A "$PROGDIR/src/main.ts" "$@"
