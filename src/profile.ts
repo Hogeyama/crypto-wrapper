@@ -1,12 +1,7 @@
 import { exists } from "@std/fs/exists";
 import { ensureDir } from "@std/fs/ensure-dir";
 import { parse } from "@std/yaml";
-import {
-  defaultCipherDir,
-  defaultMountDir,
-  profileDataDir,
-  profilesConfigFile,
-} from "./paths.ts";
+import { defaultCipherDir, defaultMountDir, profileDataDir, profilesConfigFile } from "./paths.ts";
 import { expandPath } from "./path_utils.ts";
 
 export interface Profile {
@@ -161,8 +156,7 @@ async function buildProfileFromRaw(
 
       switch (typeValue) {
         case "gocryptfs": {
-          const passwordEntry =
-            readStringField(definition, ["passwordEntry", "password_entry"]) ??
+          const passwordEntry = readStringField(definition, ["passwordEntry", "password_entry"]) ??
             readStringField(raw, ["passwordEntry", "password_entry"]);
           if (!passwordEntry) {
             throw new Error(

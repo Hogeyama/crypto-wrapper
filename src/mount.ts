@@ -17,7 +17,11 @@ export interface UnmountOptions {
   force?: boolean;
 }
 
-async function acquireLock(profileName: string, force: boolean, dryRun: boolean): Promise<void> {
+async function acquireLock(
+  profileName: string,
+  force: boolean,
+  dryRun: boolean,
+): Promise<void> {
   const lockPath = lockFilePath(profileName);
   if (dryRun) {
     const existsNow = await exists(lockPath);
@@ -43,7 +47,10 @@ async function acquireLock(profileName: string, force: boolean, dryRun: boolean)
   file.close();
 }
 
-async function writePidFile(profileName: string, dryRun: boolean): Promise<void> {
+async function writePidFile(
+  profileName: string,
+  dryRun: boolean,
+): Promise<void> {
   const pidPath = pidFilePath(profileName);
   if (dryRun) {
     return;
@@ -56,7 +63,10 @@ async function writePidFile(profileName: string, dryRun: boolean): Promise<void>
   await Deno.writeTextFile(pidPath, payload, { create: true, append: false });
 }
 
-async function cleanupState(profileName: string, dryRun: boolean): Promise<void> {
+async function cleanupState(
+  profileName: string,
+  dryRun: boolean,
+): Promise<void> {
   if (dryRun) {
     return;
   }
@@ -74,14 +84,15 @@ export async function isMounted(profileName: string): Promise<boolean> {
   return await exists(lockFilePath(profileName));
 }
 
-export async function mountProfile(profile: Profile, options: MountOptions = {}): Promise<void> {
+export async function mountProfile(
+  profile: Profile,
+  options: MountOptions = {},
+): Promise<void> {
   const { dryRun = false, force = false } = options;
 
   await acquireLock(profile.name, force, dryRun);
   const gocryptfsInjectors = getGocryptfsInjectors(profile);
-  const infoLines = [
-    `Mounting profile '${profile.name}'`,
-  ];
+  const infoLines = [`Mounting profile '${profile.name}'`];
 
   if (gocryptfsInjectors.length === 0) {
     infoLines.push(" no gocryptfs injectors configured; nothing to mount.");
@@ -131,7 +142,10 @@ export async function mountProfile(profile: Profile, options: MountOptions = {})
     }
 
     if (gocryptfsInjectors.length === 0) {
-      await logMessage("INFO", `Mounted '${profile.name}' (no gocryptfs injectors)`);
+      await logMessage(
+        "INFO",
+        `Mounted '${profile.name}' (no gocryptfs injectors)`,
+      );
     }
   } catch (error) {
     for (const injector of mountedInjectors.reverse()) {
@@ -167,16 +181,23 @@ export async function unmountProfile(
       throw new Error(`Profile '${profile.name}' is not mounted.`);
     }
     await cleanupState(profile.name, false);
-    await logMessage("WARN", `Cleared stale state for '${profile.name}' (force unmount).`);
+    await logMessage(
+      "WARN",
+      `Cleared stale state for '${profile.name}' (force unmount).`,
+    );
     return;
   }
 
   if (dryRun) {
     if (gocryptfsInjectors.length === 0) {
-      console.log(`Would clear lock state for '${profile.name}' (no gocryptfs mounts).`);
+      console.log(
+        `Would clear lock state for '${profile.name}' (no gocryptfs mounts).`,
+      );
     } else {
       for (const injector of gocryptfsInjectors) {
-        console.log(`Would unmount '${profile.name}' from ${injector.mountDir}`);
+        console.log(
+          `Would unmount '${profile.name}' from ${injector.mountDir}`,
+        );
       }
     }
     return;
@@ -224,7 +245,10 @@ export async function unmountProfile(
   } catch (error) {
     if (!force) {
       const message = error instanceof Error ? error.message : String(error);
-      await logMessage("ERROR", `Failed to unmount '${profile.name}': ${message}`);
+      await logMessage(
+        "ERROR",
+        `Failed to unmount '${profile.name}': ${message}`,
+      );
       throw error;
     }
 
