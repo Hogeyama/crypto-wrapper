@@ -110,18 +110,21 @@ program
   });
 
 program
-  .command("run <profile:string> [cmdArgs...:string]")
-  .description("Mount, execute the profile's command, and unmount afterwards.")
+  .command("run", "Mount, execute the profile's command, and unmount afterwards.")
   .option("--dry-run", "Describe actions without executing.")
   .option("--force", "Ignore stale locks when mounting.")
+  .arguments("<profile:string> [...cmdArgs:string]")
   .action(
-    async (
+    async function (
+      this,
       { dryRun = false, force = false },
       profileName: string,
       ...cmdArgs: string[]
-    ) => {
+    ) {
+      const literalArgs = this.getLiteralArgs();
+      const forwardedArgs = [...cmdArgs, ...literalArgs];
       const profile = await loadProfile(profileName);
-      const combinedArgs = [...profile.command, ...cmdArgs];
+      const combinedArgs = [...profile.command, ...forwardedArgs];
 
       const envOverrides: Record<string, string> = {
         ...profile.env,
