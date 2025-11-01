@@ -6,45 +6,52 @@ import { logMessage } from "./logger.ts";
 import { getGocryptfsInjectors, GocryptfsInjector, Profile } from "./profile.ts";
 import { readPassEntry } from "./pass.ts";
 import { lockFilePath, pidFilePath } from "./paths.ts";
+import { expandPath } from "./path_utils.ts";
 
 export interface MountOptions {
   dryRun?: boolean;
-  force?: boolean;
 }
 
 export interface UnmountOptions {
   dryRun?: boolean;
-  force?: boolean;
 }
 
-async function acquireLock(
-  profileName: string,
-  force: boolean,
-  dryRun: boolean,
-): Promise<void> {
-  const lockPath = lockFilePath(profileName);
-  if (dryRun) {
-    const existsNow = await exists(lockPath);
-    if (existsNow && !force) {
-      throw new Error(
-        `Profile '${profileName}' appears mounted (lock exists). Use --force to override.`,
-      );
-    }
-    return;
-  }
+function encodeMountInfoPath(input: string): string {
+  return input.replaceAll("\\", "\\\\").replaceAll(" ", "\\040");
+}
 
-  if (await exists(lockPath)) {
-    if (!force) {
-      throw new Error(
-        `Profile '${profileName}' appears mounted (lock exists). Use --force to override.`,
-      );
+async function isMountPointActive(path: string): Promise<boolean> {
+  const expanded = expandPath(path);
+  try {
+    const mountInfo = await Deno.readTextFile("/proc/self/mountinfo");
+    const encodedTarget = encodeMountInfoPath(expanded);
+    for (const line of mountInfo.split("\n")) {
+      if (!line) continue;
+      const fields = line.split(" ");
+      if (fields.length > 4 && fields[4] === encodedTarget) {
+        return true;
+      }
     }
-    await Deno.remove(lockPath);
+  } catch {
+    try {
+      const result = await $`mountpoint -q ${expanded}`
+        .stdout("null")
+        .stderr("null")
+        .noThrow();
+      return (result.code ?? 1) === 0;
+    } catch {
+      return false;
+    }
   }
+  return false;
+}
 
-  await ensureDir(dirname(lockPath));
-  const file = await Deno.open(lockPath, { write: true, createNew: true });
-  file.close();
+export async function areMountPointsActive(paths: string[]): Promise<boolean> {
+  if (paths.length === 0) {
+    return false;
+  }
+  const checks = await Promise.all(paths.map((path) => isMountPointActive(path)));
+  return checks.every(Boolean);
 }
 
 async function writePidFile(
@@ -88,9 +95,7 @@ export async function mountProfile(
   profile: Profile,
   options: MountOptions = {},
 ): Promise<void> {
-  const { dryRun = false, force = false } = options;
-
-  await acquireLock(profile.name, force, dryRun);
+  const { dryRun = false } = options;
   const gocryptfsInjectors = getGocryptfsInjectors(profile);
   const infoLines = [`Mounting profile '${profile.name}'`];
 
@@ -168,17 +173,14 @@ export async function unmountProfile(
   profile: Profile,
   options: UnmountOptions = {},
 ): Promise<void> {
-  const { dryRun = false, force = false } = options;
+  const { dryRun = false } = options;
   const mounted = await isMounted(profile.name);
   const gocryptfsInjectors = getGocryptfsInjectors(profile);
 
   if (!mounted) {
+    console.log(`Profile '${profile.name}' is not mounted.`);
     if (dryRun) {
-      console.log(`Profile '${profile.name}' is not mounted.`);
       return;
-    }
-    if (!force) {
-      throw new Error(`Profile '${profile.name}' is not mounted.`);
     }
     await cleanupState(profile.name, false);
     await logMessage(
@@ -210,26 +212,12 @@ export async function unmountProfile(
           .stdout("inherit")
           .stderr("inherit");
       } catch (error) {
-        if (!force) {
-          const message = error instanceof Error ? error.message : String(error);
-          await logMessage(
-            "ERROR",
-            `Failed to unmount '${profile.name}' from ${injector.mountDir}: ${message}`,
-          );
-          throw error;
-        }
-
-        try {
-          await $`umount -l ${injector.mountDir}`
-            .stdout("inherit")
-            .stderr("inherit");
-          await logMessage(
-            "WARN",
-            `Unmounted '${profile.name}' from ${injector.mountDir} using lazy umount due to previous failure.`,
-          );
-        } catch (_error) {
-          // fall through to cleanup even if lazy umount fails when forcing
-        }
+        const message = error instanceof Error ? error.message : String(error);
+        await logMessage(
+          "ERROR",
+          `Failed to unmount '${profile.name}' from ${injector.mountDir}: ${message}`,
+        );
+        throw error;
       }
 
       try {
@@ -243,16 +231,12 @@ export async function unmountProfile(
       }
     }
   } catch (error) {
-    if (!force) {
-      const message = error instanceof Error ? error.message : String(error);
-      await logMessage(
-        "ERROR",
-        `Failed to unmount '${profile.name}': ${message}`,
-      );
-      throw error;
-    }
-
-    // force path already attempted lazy umount per injector; continue to cleanup
+    const message = error instanceof Error ? error.message : String(error);
+    await logMessage(
+      "ERROR",
+      `Failed to unmount '${profile.name}': ${message}`,
+    );
+    throw error;
   }
 
   await cleanupState(profile.name, false);
