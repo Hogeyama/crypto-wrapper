@@ -110,15 +110,11 @@ program
 program
   .command("run", "Mount, execute the profile's command, and unmount afterwards.")
   .option("--dry-run", "Describe actions without executing.")
-  .option(
-    "--allow-mounted",
-    "Reuse an existing mount instead of failing when already mounted.",
-  )
   .arguments("<profile:string> [...cmdArgs:string]")
   .action(
     async function (
       this,
-      { dryRun = false, allowMounted = false },
+      { dryRun = false },
       profileName: string,
       ...cmdArgs: string[]
     ) {
@@ -131,28 +127,17 @@ program
         ...profile.env,
         CRYPTOW_PROFILE: profile.name,
       };
-      const gocryptfsInjectors = getGocryptfsInjectors(profile);
-      const alreadyMounted = await isMounted(profile.name);
-      const mountDirs = gocryptfsInjectors.map((injector) => injector.mountDir);
-      const mountDirsActive = allowMounted && !alreadyMounted
-        ? await areMountPointsActive(mountDirs)
-        : false;
-      if (gocryptfsInjectors.length > 0) {
-        const primary = gocryptfsInjectors[0];
-        envOverrides.CRYPTOW_MOUNT = primary.mountDir;
-        envOverrides.CRYPTOW_CIPHER = primary.cipherDir;
-      }
 
+      const gocryptfsInjectors = getGocryptfsInjectors(profile);
       const envInjectors = getEnvInjectors(profile);
+
+      const mountDirs = gocryptfsInjectors.map((injector) => injector.mountDir);
+      const alreadyMounted = await areMountPointsActive(mountDirs);
 
       if (dryRun) {
         if (alreadyMounted) {
           console.log(
             `[dry-run] Would reuse existing mount for profile '${profile.name}'.`,
-          );
-        } else if (mountDirsActive) {
-          console.log(
-            `[dry-run] Detected active mount for profile '${profile.name}'; would reuse existing mount.`,
           );
         } else {
           await mountProfile(profile, { dryRun: true });
@@ -180,34 +165,12 @@ program
       let exitCode = 0;
       try {
         if (alreadyMounted) {
-          if (allowMounted) {
-            console.log(
-              `Profile '${profile.name}' is already mounted; reusing existing mount.`,
-            );
-          } else {
-            throw new Error(
-              `Profile '${profile.name}' is already mounted. '--allow-mounted' を指定すると既存マウントを再利用、'--force' で強制再マウントできます。`,
-            );
-          }
-        } else if (mountDirsActive) {
           console.log(
-            `Detected active mount for profile '${profile.name}'; reusing existing mount.`,
+            `Profile '${profile.name}' is already mounted; reusing existing mount.`,
           );
         } else {
-          try {
-            await mountProfile(profile);
-            mounted = true;
-          } catch (error) {
-            if (
-              allowMounted && await areMountPointsActive(mountDirs)
-            ) {
-              console.log(
-                `Encountered mount error but detected active mount for profile '${profile.name}'; reusing existing mount.`,
-              );
-            } else {
-              throw error;
-            }
-          }
+          await mountProfile(profile);
+          mounted = true;
         }
 
         for (const injector of envInjectors) {

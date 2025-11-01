@@ -7,7 +7,6 @@ cryptow は `gocryptfs` と `pass` を組み合わせ、既存の CLI ツール�
 - プロファイル単位で対象コマンド・環境変数・マウント設定を管理
 - `gocryptfs` のマウント／アンマウントを自動化し、PID & ロックファイルで多重起動を防止
 - `pass` からのパスワード取得による認証情報インジェクション
-- `--dry-run` による事前確認、`--force` によるステート強制クリア
 - `~/.local/share/cryptow/log/cryptow.log` への操作ログ保存（XDG 環境変数に追従）
 
 ## 必要条件
@@ -65,19 +64,19 @@ profiles:
   ```
 - 暗号化ストアをマウントのみ実施:
   ```sh
-  cryptow mount <profile> [--dry-run] [--force]
+  cryptow mount <profile> [--dry-run]
   ```
 - マウント解除:
   ```sh
-  cryptow unmount <profile> [--dry-run] [--force]
+  cryptow unmount <profile> [--dry-run]
   ```
 - マウントしてコマンドを実行後にアンマウント:
   ```sh
-  cryptow run <profile> [--dry-run] [--force] [-- <追加引数>]
+  cryptow run <profile> [--dry-run] [-- <追加引数>]
   ```
   実行時には `CRYPTOW_PROFILE`、`CRYPTOW_MOUNT`、`CRYPTOW_CIPHER` といった補助環境変数も自動的に設定されます。
 
-`--dry-run` は実行予定のコマンドや環境変数上書きを出力するのみで実際のマウントやコマンド実行は行いません。`--force` はロックファイルが残っている場合の強制マウント／アンマウントに使用します。
+`--dry-run` は実行予定のコマンドや環境変数上書きを出力するのみで実際のマウントやコマンド実行は行いません。
 
 ## ログ
 操作ログは `~/.local/share/cryptow/log/cryptow.log`（XDG または `CRYPTOW_DATA_DIR` に従って解決）に追記されます。トラブルシュート時はこのファイルを確認してください。

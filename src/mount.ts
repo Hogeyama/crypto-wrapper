@@ -5,7 +5,7 @@ import $ from "@david/dax";
 import { logMessage } from "./logger.ts";
 import { getGocryptfsInjectors, GocryptfsInjector, Profile } from "./profile.ts";
 import { readPassEntry } from "./pass.ts";
-import { lockFilePath, pidFilePath } from "./paths.ts";
+import { pidFilePath } from "./paths.ts";
 import { expandPath } from "./path_utils.ts";
 
 export interface MountOptions {
@@ -77,18 +77,14 @@ async function cleanupState(
   if (dryRun) {
     return;
   }
-  const lockPath = lockFilePath(profileName);
   const pidPath = pidFilePath(profileName);
   if (await exists(pidPath)) {
     await Deno.remove(pidPath);
   }
-  if (await exists(lockPath)) {
-    await Deno.remove(lockPath);
-  }
 }
 
 export async function isMounted(profileName: string): Promise<boolean> {
-  return await exists(lockFilePath(profileName));
+  return true;
 }
 
 export async function mountProfile(
@@ -191,11 +187,7 @@ export async function unmountProfile(
   }
 
   if (dryRun) {
-    if (gocryptfsInjectors.length === 0) {
-      console.log(
-        `Would clear lock state for '${profile.name}' (no gocryptfs mounts).`,
-      );
-    } else {
+    if (gocryptfsInjectors.length > 0) {
       for (const injector of gocryptfsInjectors) {
         console.log(
           `Would unmount '${profile.name}' from ${injector.mountDir}`,

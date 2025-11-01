@@ -29,10 +29,6 @@ export function defaultMountDir(profile: string): string {
   return join(mountsDir, profile);
 }
 
-export function lockFilePath(profile: string): string {
-  return join(profileDataDir(profile), "mount.lock");
-}
-
 export function pidFilePath(profile: string): string {
   return join(profileDataDir(profile), "mount.pid");
 }
