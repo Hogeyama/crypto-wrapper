@@ -92,6 +92,7 @@ async function ensureCommands(baseEnv: Record<string, string>, verbose: boolean)
 async function initGpgAndPass(suite: SuiteEnv): Promise<void> {
   logStep(suite.verbose, "Generating temporary GPG key");
   const batchPath = await Deno.makeTempFile({ prefix: "cryptow-e2e-gpg-" });
+  logStep(suite.verbose, `Created temporary GPG batch file: ${batchPath}`);
 
   try {
     const batch = [
@@ -107,6 +108,7 @@ async function initGpgAndPass(suite: SuiteEnv): Promise<void> {
       "",
     ].join("\n");
     await Deno.writeTextFile(batchPath, batch);
+    logStep(suite.verbose, `Wrote GPG batch config: ${batchPath}`);
 
     await runCommand(["gpg", "--batch", "--generate-key", batchPath], suite.baseEnv);
     const list = await runCommand(

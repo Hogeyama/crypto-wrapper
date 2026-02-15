@@ -71,16 +71,33 @@ export async function runCryptow(
   suite: SuiteEnv,
   caseEnv: CaseEnv,
   args: string[],
-  opts: { noThrow?: boolean } = {},
 ): Promise<CmdResult> {
   logStep(suite, `Running: cryptow ${args.join(" ")}`);
   const result = await runCommand(
     ["deno", "run", "-A", suite.mainTsPath, ...args],
     caseEnv.env,
-    { cwd: suite.repoRoot, noThrow: opts.noThrow },
+    { cwd: suite.repoRoot, noThrow: true },
   );
   result.context = await buildRunContext(caseEnv, args.join(" "), result);
   return result;
+}
+
+export async function runCryptowJson<T>(
+  suite: SuiteEnv,
+  caseEnv: CaseEnv,
+  args: string[],
+): Promise<{ result: CmdResult; payload: T }> {
+  const result = await runCryptow(suite, caseEnv, args);
+  let payload: T;
+  try {
+    payload = JSON.parse(result.stdout) as T;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to parse JSON output for 'cryptow ${args.join(" ")}': ${message}\n${result.context}`,
+    );
+  }
+  return { result, payload };
 }
 
 export async function writeProfilesYaml(

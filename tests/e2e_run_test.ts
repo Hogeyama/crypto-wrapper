@@ -1,3 +1,4 @@
+import { exists } from "@std/fs/exists";
 import { join } from "@std/path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, it } from "@std/testing/bdd";
 import {
@@ -17,18 +18,29 @@ import {
   type SuiteEnv,
   writePassEntry,
 } from "./helpers/e2e_env_lib.ts";
+import {
+  isMountActive,
+  registerMountDir,
+  runCryptow,
+  writeProfilesYaml,
+} from "./helpers/e2e_cryptow_lib.ts";
 import { assertProbePayload } from "./helpers/e2e_probe.ts";
-import { registerMountDir, runCryptow, writeProfilesYaml } from "./helpers/e2e_cryptow_lib.ts";
 
 let suite: SuiteEnv;
 let caseEnv: CaseEnv;
 let caseIndex = 0;
 
+function assertCondition(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
 function q(value: string): string {
   return JSON.stringify(value);
 }
 
-function buildProfilesYaml(
+function buildProbeRunProfileYaml(
   profileName: string,
   probeScriptPath: string,
   outputPath: string,
@@ -71,7 +83,7 @@ async function arrangeRunCase(
   const cipherDir = join(caseEnv.workDir, cipherDirSuffix);
   const outputPath = join(caseEnv.workDir, outputFilename);
 
-  const yaml = buildProfilesYaml(
+  const yaml = buildProbeRunProfileYaml(
     profileName,
     suite.probeScriptPath,
     outputPath,
@@ -95,6 +107,31 @@ async function arrangeRunCase(
   };
 }
 
+function buildExitCodeRunProfileYaml(
+  profileName: string,
+  mountDir: string,
+  cipherDir: string,
+): string {
+  const exitScriptPath = join(suite.repoRoot, "tests", "fixtures", "exit_with_code.ts");
+  return [
+    "profiles:",
+    `  ${profileName}:`,
+    "    command:",
+    "      - deno",
+    "      - run",
+    "      - -A",
+    `      - ${q(exitScriptPath)}`,
+    "    env:",
+    '      EXIT_CODE: "7"',
+    "    injectors:",
+    "      - type: gocryptfs",
+    `        password_entry: ${q(`gocryptfs/${profileName}`)}`,
+    `        cipher_dir: ${q(cipherDir)}`,
+    `        mount_dir: ${q(mountDir)}`,
+    "",
+  ].join("\n");
+}
+
 describe("run e2e", () => {
   beforeAll(async () => {
     suite = await createSuiteEnv(Deno.args);
@@ -115,7 +152,6 @@ describe("run e2e", () => {
   });
 
   it("run: injects secrets, writes under mount, and cleans up with strict logs", async () => {
-    // Arrange
     const successEntry = `env/api_token_case_${caseIndex}`;
     const successToken = "TOKEN_E2E_VALUE";
     await writePassEntry(suite, successEntry, successToken);
@@ -128,10 +164,8 @@ describe("run e2e", () => {
       pidPath: exp.pidPath,
     };
 
-    // Act
-    const result = await runCryptow(suite, caseEnv, ["run", exp.profileName], { noThrow: true });
+    const result = await runCryptow(suite, caseEnv, ["run", exp.profileName]);
 
-    // Assert
     try {
       assertRunExitCode(suite, result, { expected: "success" });
       await assertProbePayload(suite, {
@@ -150,7 +184,6 @@ describe("run e2e", () => {
   });
 
   it("run: unmounts and cleans up when env injector fails", async () => {
-    // Arrange
     const missingEntry = `env/missing_token_case_${caseIndex}`;
     const exp = await arrangeRunCase(
       "e2e-run-fail",
@@ -167,14 +200,83 @@ describe("run e2e", () => {
       pidPath: exp.pidPath,
     };
 
-    // Act
-    const result = await runCryptow(suite, caseEnv, ["run", exp.profileName], { noThrow: true });
+    const result = await runCryptow(suite, caseEnv, ["run", exp.profileName]);
 
-    // Assert
     try {
       assertRunExitCode(suite, result, { expected: "failure" });
       await assertCleanupState(suite, caseEnv, invExp);
       await assertRunLifecycle(suite, caseEnv, invExp, { expectInitLog: false });
+    } catch (error) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${result.context}`,
+      );
+    }
+  });
+
+  it("run: reuses existing mount and leaves it mounted", async () => {
+    const profileName = `e2e-run-reuse-${caseIndex}`;
+    const successEntry = `env/reuse_token_case_${caseIndex}`;
+    const successToken = `TOKEN_REUSE_${caseIndex}`;
+    await writePassEntry(suite, successEntry, successToken);
+    const exp = await arrangeRunCase(
+      profileName,
+      successEntry,
+      "mount-reuse",
+      "cipher-reuse",
+      "probe-reuse.json",
+    );
+
+    await runCryptow(suite, caseEnv, ["init", exp.profileName, "--gen-pass"]);
+    await runCryptow(suite, caseEnv, ["mount", exp.profileName]);
+    const result = await runCryptow(suite, caseEnv, ["run", exp.profileName]);
+
+    try {
+      assertCondition(result.code === 0, "run should succeed");
+      const combined = `${result.stdout}\n${result.stderr}`;
+      assertCondition(
+        combined.includes("is already mounted; reusing existing mount."),
+        "reuse message was not found",
+      );
+      const active = await isMountActive(caseEnv, exp.mountDir);
+      assertCondition(active, "mount should stay active after reused run");
+      await assertProbePayload(suite, {
+        outputPath: exp.outputPath,
+        expectedApiToken: successToken,
+        expectedProfile: exp.profileName,
+        expectMountWriteOk: true,
+      });
+    } catch (error) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${result.context}`,
+      );
+    }
+  });
+
+  it("run: propagates non-zero exit code and always cleans up", async () => {
+    const profileName = `e2e-run-exit-${caseIndex}`;
+    const mountDir = join(caseEnv.workDir, "mount-exit");
+    const cipherDir = join(caseEnv.workDir, "cipher-exit");
+    const pidPath = join(caseEnv.dataDir, "profiles", profileName, "mount.pid");
+    registerMountDir(caseEnv, mountDir);
+    const yaml = buildExitCodeRunProfileYaml(profileName, mountDir, cipherDir);
+    await writeProfilesYaml(caseEnv, yaml, {
+      verbose: suite.verbose,
+      label: caseEnv.caseName,
+    });
+
+    await runCryptow(suite, caseEnv, ["init", profileName, "--gen-pass"]);
+    const result = await runCryptow(suite, caseEnv, ["run", profileName]);
+
+    try {
+      assertCondition(result.code === 7, `run should exit with child code 7, got ${result.code}`);
+      const combined = `${result.stdout}\n${result.stderr}`;
+      assertCondition(
+        combined.includes("Command exited with code 7"),
+        "expected exit code message was not found",
+      );
+      const active = await isMountActive(caseEnv, mountDir);
+      assertCondition(!active, "mount should be unmounted after failed run");
+      assertCondition(!(await exists(pidPath)), `PID file must be removed: ${pidPath}`);
     } catch (error) {
       throw new Error(
         `${error instanceof Error ? error.message : String(error)}\n${result.context}`,
