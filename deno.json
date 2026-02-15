@@ -10,7 +10,9 @@
   },
   "tasks": {
     "dev": "deno run -A src/main.ts",
-    "lint": "deno fmt && deno lint && deno check src/main.ts"
+    "lint": "deno fmt && deno lint && deno check src/main.ts",
+    "test": "deno test -A",
+    "test:e2e": "deno test -A tests/e2e_run_test.ts"
   },
   "fmt": {
     "useTabs": false,
