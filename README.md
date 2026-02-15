@@ -1,11 +1,11 @@
 # cryptow
 
 ## 概要
-cryptow は `gocryptfs` と `pass` を組み合わせ、既存の CLI ツールを暗号化ストレージ越しに安全に利用するための Deno 製ラッパーです。プロファイル定義に従って暗号化ストアをマウントし、コマンド実行後に確実にアンマウントすることで秘匿情報の平文放置を防ぎます。
+cryptow は `gocryptfs` と `pass` を組み合わせ、既存の CLI ツールを暗号化ストレージ越しに安全に利用するための Deno 製ラッパーです。プロファイル定義に従って暗号化ストアをマウントし、必要に応じてアンマウントすることで秘匿情報の平文放置を防ぎます。
 
 ## 主な機能
 - プロファイル単位で対象コマンド・環境変数・マウント設定を管理
-- `gocryptfs` のマウント／アンマウントを自動化し、PID & ロックファイルで多重起動を防止
+- `gocryptfs` のマウント／アンマウントを自動化し、PID ファイルと実マウント状態で管理
 - `pass` からのパスワード取得による認証情報インジェクション
 - `~/.local/share/cryptow/log/cryptow.log` への操作ログ保存（XDG 環境変数に追従）
 
@@ -54,7 +54,7 @@ profiles:
   - `type: env` は `pass` から取得したシークレットを環境変数に注入します。`env`（または `variable`/`name`）で変数名を指定します。
 - `working_dir` / `cwd`: コマンド実行時のカレントディレクトリ。
 
-データディレクトリは `~/.local/share/cryptow`（または `XDG_DATA_HOME`/`CRYPTOW_DATA_DIR`）配下に作成され、マウント用ディレクトリ・ロックファイル・ログを管理します。
+データディレクトリは `~/.local/share/cryptow`（または `XDG_DATA_HOME`/`CRYPTOW_DATA_DIR`）配下に作成され、マウント用ディレクトリ・PID ファイル・ログを管理します。
 
 ## 使い方
 - プロファイル一覧とマウント状態を確認:
@@ -74,11 +74,11 @@ profiles:
   ```sh
   cryptow unmount <profile> [--dry-run]
   ```
-- マウントしてコマンドを実行後にアンマウント:
+- マウントしてコマンドを実行:
   ```sh
   cryptow run <profile> [--dry-run] [-- <追加引数>]
   ```
-  実行時には `CRYPTOW_PROFILE`、`CRYPTOW_MOUNT`、`CRYPTOW_CIPHER` といった補助環境変数も自動的に設定されます。
+  実行時には `CRYPTOW_PROFILE` が自動的に設定されます。対象プロファイルが既にマウント済みの場合はマウントを再利用し、実行後も維持します。
 
 `--dry-run` は実行予定のコマンドや環境変数上書きを出力するのみで実際のマウントやコマンド実行は行いません。
 
@@ -94,6 +94,6 @@ profiles:
 ## 開発・メンテナンス
 - コードフォーマットと静的解析: `deno fmt` / `deno lint`
 - 型チェック: `deno check src/main.ts`
-- サンプル設定: `examples/profiles.yaml`
+- E2E テスト: `deno test -A tests/e2e_*.ts`
 
 バグ報告や改善提案は Issue や Pull Request で歓迎します。
