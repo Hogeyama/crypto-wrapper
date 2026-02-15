@@ -143,7 +143,9 @@ describe("run e2e", () => {
       await assertCleanupState(suite, caseEnv, invExp);
       await assertRunLifecycle(suite, caseEnv, invExp, { expectInitLog: true });
     } catch (error) {
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${result.context}`);
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${result.context}`,
+      );
     }
   });
 
@@ -174,7 +176,9 @@ describe("run e2e", () => {
       await assertCleanupState(suite, caseEnv, invExp);
       await assertRunLifecycle(suite, caseEnv, invExp, { expectInitLog: false });
     } catch (error) {
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${result.context}`);
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${result.context}`,
+      );
     }
   });
 });

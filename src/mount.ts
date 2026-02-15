@@ -92,10 +92,6 @@ async function cleanupState(
   }
 }
 
-export async function isMounted(profileName: string): Promise<boolean> {
-  return true;
-}
-
 export async function assertGocryptfsInitialized(profile: Profile): Promise<void> {
   for (const injector of getGocryptfsInjectors(profile)) {
     const configPath = gocryptfsConfigPath(injector.cipherDir);
@@ -260,21 +256,7 @@ export async function unmountProfile(
   options: UnmountOptions = {},
 ): Promise<void> {
   const { dryRun = false } = options;
-  const mounted = await isMounted(profile.name);
   const gocryptfsInjectors = getGocryptfsInjectors(profile);
-
-  if (!mounted) {
-    console.log(`Profile '${profile.name}' is not mounted.`);
-    if (dryRun) {
-      return;
-    }
-    await cleanupState(profile.name, false);
-    await logMessage(
-      "WARN",
-      `Cleared stale state for '${profile.name}' (force unmount).`,
-    );
-    return;
-  }
 
   if (dryRun) {
     if (gocryptfsInjectors.length > 0) {

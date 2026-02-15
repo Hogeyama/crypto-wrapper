@@ -14,7 +14,6 @@ import {
   areMountPointsActive,
   assertGocryptfsInitialized,
   initProfile,
-  isMounted,
   mountProfile,
   unmountProfile,
 } from "./mount.ts";
@@ -64,10 +63,10 @@ program
     for (const name of names) {
       try {
         const profile = await loadProfile(name);
-        const mounted = await isMounted(name);
         const gocMounts = getGocryptfsInjectors(profile).map(
           (injector) => injector.mountDir,
         );
+        const mounted = await areMountPointsActive(gocMounts);
         rows.push({
           name,
           mounted,
