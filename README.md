@@ -66,6 +66,10 @@ profiles:
   ```sh
   cryptow mount <profile> [--dry-run]
   ```
+- 暗号化ストアを初期化:
+  ```sh
+  cryptow init <profile> [--dry-run] [--gen-pass]
+  ```
 - マウント解除:
   ```sh
   cryptow unmount <profile> [--dry-run]
@@ -77,6 +81,12 @@ profiles:
   実行時には `CRYPTOW_PROFILE`、`CRYPTOW_MOUNT`、`CRYPTOW_CIPHER` といった補助環境変数も自動的に設定されます。
 
 `--dry-run` は実行予定のコマンドや環境変数上書きを出力するのみで実際のマウントやコマンド実行は行いません。
+
+初回利用時は `cryptow init <profile>` で `gocryptfs.conf` を作成してください。`mount` / `run` は未初期化の場合、
+`cryptow init <profile>` を先に実行するよう案内して終了します。
+
+`cryptow init --gen-pass` を使うと、`password_entry` に対して `pass generate <entry> 32` を実行してから
+`gocryptfs` 初期化を行います。既存の `gocryptfs.conf` または既存の pass エントリがある場合は安全のためエラー終了します。
 
 ## ログ
 操作ログは `~/.local/share/cryptow/log/cryptow.log`（XDG または `CRYPTOW_DATA_DIR` に従って解決）に追記されます。トラブルシュート時はこのファイルを確認してください。

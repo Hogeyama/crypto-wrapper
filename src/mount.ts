@@ -16,6 +16,15 @@ export interface UnmountOptions {
   dryRun?: boolean;
 }
 
+export interface InitOptions {
+  dryRun?: boolean;
+  genPass?: boolean;
+}
+
+function gocryptfsConfigPath(cipherDir: string): string {
+  return `${cipherDir}/gocryptfs.conf`;
+}
+
 function encodeMountInfoPath(input: string): string {
   return input.replaceAll("\\", "\\\\").replaceAll(" ", "\\040");
 }
@@ -87,6 +96,85 @@ export async function isMounted(profileName: string): Promise<boolean> {
   return true;
 }
 
+export async function assertGocryptfsInitialized(profile: Profile): Promise<void> {
+  for (const injector of getGocryptfsInjectors(profile)) {
+    const configPath = gocryptfsConfigPath(injector.cipherDir);
+    if (!(await exists(configPath))) {
+      throw new Error(
+        `Profile '${profile.name}' is not initialized: missing ${configPath}. Run 'cryptow init ${profile.name}' first.`,
+      );
+    }
+  }
+}
+
+export async function initProfile(
+  profile: Profile,
+  options: InitOptions = {},
+): Promise<void> {
+  const { dryRun = false, genPass = false } = options;
+  const gocryptfsInjectors = getGocryptfsInjectors(profile);
+  if (gocryptfsInjectors.length === 0) {
+    throw new Error(`Profile '${profile.name}' has no gocryptfs injectors to initialize.`);
+  }
+
+  if (dryRun) {
+    console.log(`Initializing profile '${profile.name}'`);
+    for (const injector of gocryptfsInjectors) {
+      console.log(
+        ` [dry-run] gocryptfs init -> ${injector.cipherDir} (pass: ${injector.passwordEntry})`,
+      );
+      if (genPass) {
+        console.log(` [dry-run] pass generate ${injector.passwordEntry} 32`);
+      } else {
+        console.log(` [dry-run] pass show ${injector.passwordEntry}`);
+      }
+    }
+    console.log(" [dry-run] No commands executed");
+    return;
+  }
+
+  for (const injector of gocryptfsInjectors) {
+    await ensureDir(injector.cipherDir);
+    await ensureDir(injector.mountDir);
+
+    const configPath = gocryptfsConfigPath(injector.cipherDir);
+    if (await exists(configPath)) {
+      throw new Error(
+        `Profile '${profile.name}' is already initialized: ${configPath} already exists.`,
+      );
+    }
+
+    if (genPass) {
+      const hasEntry = await $`pass show ${injector.passwordEntry}`
+        .stdout("null")
+        .stderr("null")
+        .noThrow();
+      if ((hasEntry.code ?? 1) === 0) {
+        throw new Error(
+          `pass entry '${injector.passwordEntry}' already exists. Refusing to overwrite.`,
+        );
+      }
+      await $`pass generate ${injector.passwordEntry} 32`
+        .stdout("inherit")
+        .stderr("inherit");
+    }
+
+    const password = await readPassEntry(injector.passwordEntry);
+    const tempPassFile = await Deno.makeTempFile({ prefix: "cryptow-pass-" });
+    try {
+      await Deno.chmod(tempPassFile, 0o600);
+      await Deno.writeTextFile(tempPassFile, password + "\n");
+      await $`gocryptfs -init -q --passfile ${tempPassFile} ${injector.cipherDir}`
+        .stdout("inherit")
+        .stderr("inherit");
+    } finally {
+      await Deno.remove(tempPassFile).catch(() => {});
+    }
+  }
+
+  await logMessage("INFO", `Initialized profile '${profile.name}'`);
+}
+
 export async function mountProfile(
   profile: Profile,
   options: MountOptions = {},
@@ -112,6 +200,8 @@ export async function mountProfile(
     }
     return;
   }
+
+  await assertGocryptfsInitialized(profile);
 
   const mountedInjectors: GocryptfsInjector[] = [];
 

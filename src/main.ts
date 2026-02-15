@@ -10,7 +10,14 @@ import {
   listProfileNames,
   loadProfile,
 } from "./profile.ts";
-import { areMountPointsActive, isMounted, mountProfile, unmountProfile } from "./mount.ts";
+import {
+  areMountPointsActive,
+  assertGocryptfsInitialized,
+  initProfile,
+  isMounted,
+  mountProfile,
+  unmountProfile,
+} from "./mount.ts";
 import { expandPath } from "./path_utils.ts";
 import { readPassEntry } from "./pass.ts";
 
@@ -88,6 +95,19 @@ program
   });
 
 program
+  .command("init <profile:string>")
+  .description("Initialize gocryptfs cipher store(s) for a profile.")
+  .option("--dry-run", "Describe actions without executing.")
+  .option(
+    "--gen-pass",
+    "Generate pass entry before initializing gocryptfs.",
+  )
+  .action(async ({ dryRun = false, genPass = false }, profileName: string) => {
+    const profile = await loadProfile(profileName);
+    await initProfile(profile, { dryRun, genPass });
+  });
+
+program
   .command("mount <profile:string>")
   .description(
     "Mount the encrypted store for a profile without executing its command.",
@@ -160,6 +180,8 @@ program
         }
         return;
       }
+
+      await assertGocryptfsInitialized(profile);
 
       let mounted = false;
       let exitCode = 0;
