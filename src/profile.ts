@@ -1,5 +1,5 @@
-import { exists } from "@std/fs/exists";
-import { ensureDir } from "@std/fs/ensure-dir";
+import { existsSync } from "@std/fs/exists";
+import { ensureDirSync } from "@std/fs/ensure-dir";
 import { parse } from "@std/yaml";
 import { defaultCipherDir, defaultMountDir, profileDataDir, profilesConfigFile } from "./paths.ts";
 import { expandPath } from "./path_utils.ts";

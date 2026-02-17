@@ -88,6 +88,25 @@ profiles:
 `cryptow init --gen-pass` を使うと、`password_entry` に対して `pass generate <entry> 32` を実行してから
 `gocryptfs` 初期化を行います。既存の `gocryptfs.conf` または既存の pass エントリがある場合は安全のためエラー終了します。
 
+## シェル補完
+
+bash / zsh / fish 向けの補完スクリプトを生成できます。
+
+```sh
+# bash (~/.bashrc に追記)
+source <(cryptow completions bash)
+
+# zsh (~/.zshrc に追記)
+source <(cryptow completions zsh)
+
+# fish (~/.config/fish/config.fish に追記)
+source (cryptow completions fish | psub)
+```
+
+サブコマンド名・オプションが補完されます。bash ではプロファイル名も補完されます。
+
+> **注意:** zsh ではプロファイル名の補完が効きません（cliffy の zsh 補完生成のバグ: サブコマンドの位置引数に対するカスタム補完が出力されない）。
+
 ## ログ
 操作ログは `~/.local/share/cryptow/log/cryptow.log`（XDG または `CRYPTOW_DATA_DIR` に従って解決）に追記されます。トラブルシュート時はこのファイルを確認してください。
 

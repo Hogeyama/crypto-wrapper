@@ -1,6 +1,7 @@
 #!/usr/bin/env -S deno run -A
 
 import { Command } from "@cliffy/command";
+import { CompletionsCommand } from "@cliffy/command/completions";
 import { bold } from "@std/fmt/colors";
 import { CommandBuilder, type Delay } from "@david/dax";
 import {
@@ -48,6 +49,7 @@ const program = new Command()
   .description(
     "Secure wrapper around CLI tools using gocryptfs-mounted storage.",
   )
+  .complete("profile", () => listProfileNames())
   .throwErrors();
 
 program
@@ -97,7 +99,7 @@ program
   });
 
 program
-  .command("init <profile:string>")
+  .command("init <profile:string:profile>")
   .description("Initialize gocryptfs cipher store(s) for a profile.")
   .option("--dry-run", "Describe actions without executing.")
   .option(
@@ -110,7 +112,7 @@ program
   });
 
 program
-  .command("mount <profile:string>")
+  .command("mount <profile:string:profile>")
   .description(
     "Mount the encrypted store for a profile without executing its command.",
   )
@@ -121,7 +123,7 @@ program
   });
 
 program
-  .command("unmount <profile:string>")
+  .command("unmount <profile:string:profile>")
   .description("Unmount the encrypted store for a profile.")
   .option("--dry-run", "Describe actions without executing.")
   .action(async ({ dryRun = false }, profileName: string) => {
@@ -136,7 +138,7 @@ program
     "--timeout <duration:string>",
     "Kill command after specified duration (e.g., 30s, 5m, 1h).",
   )
-  .arguments("<profile:string> [...cmdArgs:string]")
+  .arguments("<profile:string:profile> [...cmdArgs:string]")
   .action(
     async function (
       this,
@@ -265,6 +267,8 @@ program
       }
     },
   );
+
+program.command("completions", new CompletionsCommand());
 
 if (import.meta.main) {
   await program.parse(Deno.args);
