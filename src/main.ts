@@ -55,7 +55,7 @@ program
   .description("List configured profiles and mount status.")
   .option("--json", "Output JSON")
   .action(async ({ json }) => {
-    const names = await listProfileNames();
+    const names = listProfileNames();
     const rows: Array<{
       name: string;
       mounted: boolean;
@@ -65,7 +65,7 @@ program
 
     for (const name of names) {
       try {
-        const profile = await loadProfile(name);
+        const profile = loadProfile(name);
         const gocMounts = getGocryptfsInjectors(profile).map(
           (injector) => injector.mountDir,
         );
@@ -105,7 +105,7 @@ program
     "Generate pass entry before initializing gocryptfs.",
   )
   .action(async ({ dryRun = false, genPass = false }, profileName: string) => {
-    const profile = await loadProfile(profileName);
+    const profile = loadProfile(profileName);
     await initProfile(profile, { dryRun, genPass });
   });
 
@@ -116,7 +116,7 @@ program
   )
   .option("--dry-run", "Describe actions without executing.")
   .action(async ({ dryRun = false }, profileName: string) => {
-    const profile = await loadProfile(profileName);
+    const profile = loadProfile(profileName);
     await mountProfile(profile, { dryRun });
   });
 
@@ -125,7 +125,7 @@ program
   .description("Unmount the encrypted store for a profile.")
   .option("--dry-run", "Describe actions without executing.")
   .action(async ({ dryRun = false }, profileName: string) => {
-    const profile = await loadProfile(profileName);
+    const profile = loadProfile(profileName);
     await unmountProfile(profile, { dryRun });
   });
 
@@ -147,7 +147,7 @@ program
       const timeout = isDelay(rawTimeout) ? rawTimeout : undefined;
       const literalArgs = this.getLiteralArgs();
       const forwardedArgs = [...cmdArgs, ...literalArgs];
-      const profile = await loadProfile(profileName);
+      const profile = loadProfile(profileName);
       const combinedArgs = [...profile.command, ...forwardedArgs];
 
       const envOverrides: Record<string, string> = {

@@ -60,15 +60,15 @@ function readStringField(source: unknown, keys: string[]): string | undefined {
   return undefined;
 }
 
-async function readProfilesYaml(): Promise<{
+function readProfilesYaml(): {
   profiles: Record<string, RawProfile>;
   exists: boolean;
-}> {
-  if (!(await exists(profilesConfigFile))) {
+} {
+  if (!existsSync(profilesConfigFile)) {
     return { profiles: {}, exists: false };
   }
 
-  const content = await Deno.readTextFile(profilesConfigFile);
+  const content = Deno.readTextFileSync(profilesConfigFile);
   if (content.trim().length === 0) {
     return { profiles: {}, exists: true };
   }
@@ -107,10 +107,10 @@ async function readProfilesYaml(): Promise<{
   return { profiles, exists: true };
 }
 
-async function buildProfileFromRaw(
+function buildProfileFromRaw(
   name: string,
   raw: RawProfile,
-): Promise<Profile> {
+): Profile {
   const commandValue = raw.command;
   if (
     !commandValue ||
@@ -224,7 +224,7 @@ async function buildProfileFromRaw(
     throw new Error(`Profile '${name}' is missing 'injectors'.`);
   }
 
-  await ensureDir(profileDataDir(name));
+  ensureDirSync(profileDataDir(name));
 
   return {
     name,
@@ -235,8 +235,8 @@ async function buildProfileFromRaw(
   };
 }
 
-export async function listProfileNames(): Promise<string[]> {
-  const { profiles, exists: yamlExists } = await readProfilesYaml();
+export function listProfileNames(): string[] {
+  const { profiles, exists: yamlExists } = readProfilesYaml();
   if (!yamlExists) {
     return [];
   }
@@ -244,8 +244,8 @@ export async function listProfileNames(): Promise<string[]> {
   return Object.keys(profiles).sort();
 }
 
-export async function loadProfile(name: string): Promise<Profile> {
-  const { profiles, exists: yamlExists } = await readProfilesYaml();
+export function loadProfile(name: string): Profile {
+  const { profiles, exists: yamlExists } = readProfilesYaml();
   if (!yamlExists) {
     throw new Error(
       `Profiles configuration not found at ${profilesConfigFile}`,
@@ -257,7 +257,7 @@ export async function loadProfile(name: string): Promise<Profile> {
     throw new Error(`Profile '${name}' not found in ${profilesConfigFile}`);
   }
 
-  return await buildProfileFromRaw(name, raw);
+  return buildProfileFromRaw(name, raw);
 }
 
 export function getGocryptfsInjectors(profile: Profile): GocryptfsInjector[] {
