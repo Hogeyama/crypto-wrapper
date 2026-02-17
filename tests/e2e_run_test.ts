@@ -107,6 +107,29 @@ async function arrangeRunCase(
   };
 }
 
+function buildSleepForeverProfileYaml(
+  profileName: string,
+  sleepScriptPath: string,
+  mountDir: string,
+  cipherDir: string,
+): string {
+  return [
+    "profiles:",
+    `  ${profileName}:`,
+    "    command:",
+    "      - deno",
+    "      - run",
+    "      - -A",
+    `      - ${q(sleepScriptPath)}`,
+    "    injectors:",
+    "      - type: gocryptfs",
+    `        password_entry: ${q(`gocryptfs/${profileName}`)}`,
+    `        cipher_dir: ${q(cipherDir)}`,
+    `        mount_dir: ${q(mountDir)}`,
+    "",
+  ].join("\n");
+}
+
 function buildExitCodeRunProfileYaml(
   profileName: string,
   mountDir: string,
@@ -244,6 +267,68 @@ describe("run e2e", () => {
         expectedApiToken: successToken,
         expectedProfile: exp.profileName,
         expectMountWriteOk: true,
+      });
+    } catch (error) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${result.context}`,
+      );
+    }
+  });
+
+  it("run: timeout kills command and cleans up", async () => {
+    const profileName = `e2e-run-timeout-${caseIndex}`;
+    const mountDir = join(caseEnv.workDir, "mount-timeout");
+    const cipherDir = join(caseEnv.workDir, "cipher-timeout");
+    const pidPath = join(caseEnv.dataDir, "profiles", profileName, "mount.pid");
+    const sleepScriptPath = join(suite.repoRoot, "tests", "fixtures", "sleep_forever.ts");
+    registerMountDir(caseEnv, mountDir);
+    const yaml = buildSleepForeverProfileYaml(profileName, sleepScriptPath, mountDir, cipherDir);
+    await writeProfilesYaml(caseEnv, yaml, {
+      verbose: suite.verbose,
+      label: caseEnv.caseName,
+    });
+
+    await runCryptow(suite, caseEnv, ["init", profileName, "--gen-pass"]);
+    const result = await runCryptow(suite, caseEnv, ["run", "--timeout", "2s", profileName]);
+
+    try {
+      assertCondition(result.code === 124, `run should exit with code 124, got ${result.code}`);
+      const combined = `${result.stdout}\n${result.stderr}`;
+      assertCondition(
+        combined.includes("Command timed out"),
+        "expected timeout message was not found",
+      );
+      const active = await isMountActive(caseEnv, mountDir);
+      assertCondition(!active, "mount should be unmounted after timeout");
+      assertCondition(!(await exists(pidPath)), `PID file must be removed: ${pidPath}`);
+    } catch (error) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}\n${result.context}`,
+      );
+    }
+  });
+
+  it("run: completes within timeout normally", async () => {
+    const successEntry = `env/api_token_timeout_ok_${caseIndex}`;
+    const successToken = "TOKEN_TIMEOUT_OK";
+    await writePassEntry(suite, successEntry, successToken);
+    const exp = await arrangeRunCase(
+      `e2e-run-timeout-ok-${caseIndex}`,
+      successEntry,
+      "mount-timeout-ok",
+      "cipher-timeout-ok",
+      "probe-timeout-ok.json",
+    );
+    await runCryptow(suite, caseEnv, ["init", exp.profileName, "--gen-pass"]);
+    const result = await runCryptow(suite, caseEnv, ["run", "--timeout", "30s", exp.profileName]);
+
+    try {
+      assertCondition(result.code === 0, `run should succeed, got exit code ${result.code}`);
+      await assertCleanupState(suite, caseEnv, {
+        profileName: exp.profileName,
+        mountDir: exp.mountDir,
+        cipherDir: exp.cipherDir,
+        pidPath: exp.pidPath,
       });
     } catch (error) {
       throw new Error(

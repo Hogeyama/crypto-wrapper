@@ -2,8 +2,7 @@
 
 import { Command } from "@cliffy/command";
 import { bold } from "@std/fmt/colors";
-import { CommandBuilder } from "@david/dax";
-
+import { CommandBuilder, type Delay } from "@david/dax";
 import {
   getEnvInjectors,
   getGocryptfsInjectors,
@@ -21,6 +20,10 @@ import { expandPath } from "./path_utils.ts";
 import { readPassEntry } from "./pass.ts";
 
 const VERSION = "0.1.0";
+
+function isDelay(value: unknown): value is Delay {
+  return typeof value === "string" && /^\d+(?:h(?:\d+m(?:\d+s)?)?|m(?:\d+s)?|s|ms)?$/.test(value);
+}
 
 function printListTable(
   rows: Array<{
@@ -129,14 +132,19 @@ program
 program
   .command("run", "Mount, execute the profile's command, and unmount afterwards.")
   .option("--dry-run", "Describe actions without executing.")
+  .option(
+    "--timeout <duration:string>",
+    "Kill command after specified duration (e.g., 30s, 5m, 1h).",
+  )
   .arguments("<profile:string> [...cmdArgs:string]")
   .action(
     async function (
       this,
-      { dryRun = false },
+      { dryRun = false, timeout: rawTimeout },
       profileName: string,
       ...cmdArgs: string[]
     ) {
+      const timeout = isDelay(rawTimeout) ? rawTimeout : undefined;
       const literalArgs = this.getLiteralArgs();
       const forwardedArgs = [...cmdArgs, ...literalArgs];
       const profile = await loadProfile(profileName);
@@ -171,6 +179,9 @@ program
           for (const [key, value] of Object.entries(dryRunEnv)) {
             console.log(`  ${key}=${value}`);
           }
+        }
+        if (timeout) {
+          console.log(`[dry-run] Timeout: ${timeout}`);
         }
         if (profile.workingDir) {
           console.log(
@@ -220,9 +231,15 @@ program
           builder = builder.cwd(expandPath(profile.workingDir));
         }
 
+        if (timeout) {
+          builder = builder.timeout(timeout);
+        }
+
         const result = await builder.noThrow();
         exitCode = result.code ?? 0;
-        if (exitCode !== 0) {
+        if (exitCode === 124 && timeout) {
+          console.error(bold(`Command timed out after ${timeout}`));
+        } else if (exitCode !== 0) {
           console.error(bold(`Command exited with code ${exitCode}`));
         }
       } catch (error) {
